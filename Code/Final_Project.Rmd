@@ -1,0 +1,387 @@
+---
+title: "Final_Project"
+author: "S/17/436"
+date: "2023-11-14"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Stroke is a serious global health issue that affects people everywhere, regardless of where they live or their background. It happens when something disrupts the flow of blood to the brain, causing harm and, in many cases, leading to death. Shockingly, it stands as the second leading cause of death worldwide, making up about 11% of all recorded deaths, according to the World Health Organization (WHO).
+
+What makes stroke particularly challenging is that it happens quietly inside the complex structure of the brain. Unlike some other health emergencies, it requires quick and accurate action for the best possible results.
+
+![](images/fs-stroke.jpg)
+
+Detecting stroke early is crucial for effective treatment, as it helps stop the chain of events triggered by the interruption of blood flow. This project is all about using advanced statistical methods called Bayesian techniques to improve the early identification of stroke.
+
+# Methodology
+
+### Data set description
+
+This dataset is used to predict whether a patient is likely to get stroke based on the input parameters like gender, age, various diseases, and smoking status. Each row in the data provides relavant information about the patient. The attribute information are given as follows. (data source: <https://www.kaggle.com/code/ashokkumarpalivela/stroke-prediction-end-to-end-project/input>)
+
+| Variable          | Description                                                                            |
+|-------------------|----------------------------------------------------------------------------------------|
+| id                | unique identifier                                                                      |
+| gender            | "Male", "Female" or "Other"                                                            |
+| age               | age of the patient                                                                     |
+| hypertension      | 0 if the patient doesn't have hypertension, 1 if the patient has hypertension          |
+| heart_disease     | 0 if the patient doesn't have any heart diseases, 1 if the patient has a heart disease |
+| ever_married      | "No" or "Yes"                                                                          |
+| work_type         | "children", "Govt_jov", "Never_worked", "Private" or "Self-employed"                   |
+| Residence_type    | "Rural" or "Urban"                                                                     |
+| avg_glucose_level | average glucose level in blood                                                         |
+| bmi               | body mass index                                                                        |
+| smoking_status    | "formerly smoked", "never smoked", "smokes" or "Unknown"\*                             |
+| stroke            | 1 if the patient had a stroke or 0 if not                                              |
+
+*\*Note: "Unknown" in smoking_status means that the information is unavailable for this patient.*
+
+### Statistical Method
+
+This study employs Bayesian techniques, specifically Naive Bayesian and Bayesian multiple linear regression, to identify early signs of stroke. The Naive Bayesian approach assumes independence between predictors, providing a straightforward initial assessment of the individual impact of each variable. Bayesian multiple linear regression, on the other hand, considers the relationships between multiple predictors, offering a more nuanced understanding of their combined influence on the likelihood of a stroke.
+
+### Dealing with/Overcoming Assumption Violations
+
+To address potential violations of assumptions, such as normality of residuals in linear regression, we utilize Bayesian methods that are inherently robust and less reliant on strict assumptions. Bayesian statistics, by nature, allows for more flexibility in modeling complex relationships without being overly constrained by assumptions that may not hold in real-world scenarios.
+
+### Detailed Procedure
+
+The procedure that I have to deal can be state as follows. There I have included all the steps from data preprocessing to model evaluation.
+
+### Required Packages
+
+```{r}
+library(tidyverse)
+library(tinytex)
+library(ggplot2)
+library(corrplot)
+library(caret)
+library(e1071)
+library(pROC)
+```
+
+### Import Dataset
+
+```{r}
+stroke <- read_csv('../Data/healthcare-dataset-stroke-data.csv')
+```
+
+```{r}
+## Display head of the dataset
+head(stroke)
+```
+
+```{r}
+## Look at the structure of the variables 
+str(stroke)
+```
+
+```{r}
+## Describe the dataset
+glimpse(stroke)
+```
+
+```{r}
+## Find the dimension of the dataset
+dim(stroke)
+```
+
+There are 5110 observations that belongs to the 12 variables.
+
+### Data Preprocessing
+
+```{r}
+## Count missing values in each column
+null_counts <- colSums(is.na(stroke))
+
+## Convert the result to a data frame with column name "Null count"
+result <- data.frame("Null count" = null_counts)
+
+## Print the result
+print(result)
+```
+
+```{r}
+## Identify "N/A" values
+na_indices <- lapply(stroke, function(x) which(x == "N/A"))
+
+## Replace "N/A" values with NA and count missing values
+missing_counts <- sapply(1:ncol(stroke), function(i) {
+  stroke[[i]][na_indices[[i]]] <- NA
+  sum(is.na(stroke[[i]]))
+})
+
+## Create a data frame with column names and missing counts
+result <- data.frame(
+  Column = names(stroke),
+  Missing_Count = missing_counts
+)
+
+## Print the result
+print(result)
+```
+
+```{r}
+## Convert column A to numeric and fill missing values with the mean
+stroke$bmi <- as.numeric(as.character(stroke$bmi))
+mean_A <- mean(stroke$bmi, na.rm = TRUE)
+
+## Replace missing values in column A with the mean
+stroke$bmi[is.na(stroke$bmi)] <- mean_A
+
+## Print the corrected data
+print(stroke)
+```
+
+There are 201 NA values in 'bmi' variable. Treated for them by using the mean of the bmi as 28.89.
+
+### Exploratory Data Analysis
+
+```{r}
+## Display summary statistics
+summary(stroke)
+```
+
+Obtaine the summary statistics for numerical variables in the data set.
+
+| Summary statistics | age   | avg_glucose_level | bmi   |
+|--------------------|-------|-------------------|-------|
+| Min                | 0.08  | 55.12             | 10.30 |
+| Max                | 82.00 | 271.74            | 97.60 |
+| Mean               | 43.23 | 106.15            | 28.89 |
+| 1st Quartile       | 25.00 | 77.25             | 23.80 |
+| Median             | 45.00 | 91.89             | 28.40 |
+| 3rd Quartile       | 61.00 | 114.09            | 32.80 |
+
+```{r}
+# Calculate the percentage of each value
+percentage_0 <- (sum(stroke$stroke == 0) / length(stroke$stroke)) * 100
+percentage_1 <- (sum(stroke$stroke == 1) / length(stroke$stroke)) * 100
+
+# Create a bar plot
+bar_heights <- c(percentage_0, percentage_1)
+bar_names <- c('0', '1')
+
+# Plot the bar graph
+barplot(bar_heights, names.arg = bar_names, col = c('red', 'green'),
+        xlab = 'Values', ylab = 'Percentage',
+        main = 'Percentage of 0s and 1s')
+
+# Add percentage values on top of each bar
+text(seq_along(bar_heights), bar_heights, labels = sprintf("%.1f%%", bar_heights),
+     pos = 3, cex = 0.8, col = 'black', font = 1)
+```
+
+4.9% of the target variable is 1s (stroke presence) and 95.1% of the target variable is 0s (stroke absence)
+
+```{r}
+## Density plot for age
+plot(density(stroke$age), main = "Density Plot of Age", xlab = "Age", col = "blue", lwd = 2)
+
+# Add a rug plot for individual data points
+rug(stroke$age, col = "red")
+
+```
+
+The distribution of the age variable is align with 0.08 and 82.00 and also most of the data points are contain within the 45 - 60 range. This distribution may not have exact shape like normal curve.
+
+```{r}
+## Density plot for age
+plot(density(stroke$avg_glucose_level), main = "Density Plot of Avarage Glucose level", xlab = "avg_glucose_level", col = "blue", lwd = 2)
+
+## Add a rug plot for individual data points
+rug(stroke$avg_glucose_level, col = "red")
+```
+
+The data points of the avg_glucose_level from 55.12 to 125 portion of the above graph behave as the normal distribution.
+
+```{r}
+## Density plot for age
+plot(density(stroke$bmi), main = "Density Plot of BMI", xlab = "BMI", col = "blue", lwd = 2)
+
+## Add a rug plot for individual data points
+rug(stroke$bmi, col = "red")
+```
+
+From 10.30 to 50 part of the above graph has an unique shape approximately normal.
+
+```{r}
+## Boxplot for age
+boxplot(stroke$age, main = "Boxplot of Age", col = "lightgreen", border = "black")
+
+```
+
+```{r}
+## Boxplot for avg_glucose_level
+boxplot(stroke$avg_glucose_level, main = "Boxplot of Avg Glucose Level", col = "lightblue", border = "black")
+```
+
+```{r}
+## Boxplot for bmi
+boxplot(stroke$bmi, main = "Boxplot of BMI", col = "lightcoral", border = "black")
+```
+
+```{r}
+## Create a pie chart for gender
+gender_counts <- table(stroke$gender)
+gender_percentages <- round(prop.table(gender_counts) * 100, 1)
+pie(gender_counts, labels = paste(names(gender_counts), "\n", gender_percentages, "%"), main = "Distribution of Gender", col = rainbow(length(gender_counts)))
+
+## Create a pie chart for ever_married
+married_counts <- table(stroke$ever_married)
+married_percentages <- round(prop.table(married_counts) * 100, 1)
+pie(married_counts, labels = paste(names(married_counts), "\n", married_percentages, "%"), main = "Distribution of Marital Status", col = rainbow(length(married_counts)))
+
+## Create a pie chart for work_type
+work_counts <- table(stroke$work_type)
+work_percentages <- round(prop.table(work_counts) * 100, 1)
+pie(work_counts, labels = paste(names(work_counts), "\n", work_percentages, "%"), main = "Distribution of Work Type", col = rainbow(length(work_counts)))
+
+## Create a pie chart for Residence_type
+residence_counts <- table(stroke$Residence_type)
+residence_percentages <- round(prop.table(residence_counts) * 100, 1)
+pie(residence_counts, labels = paste(names(residence_counts), "\n", residence_percentages, "%"), main = "Distribution of Residence Type", col = rainbow(length(residence_counts)))
+
+## Create a pie chart for Residence_type
+smoke_counts <- table(stroke$smoking_status)
+smoke_percentages <- round(prop.table(smoke_counts) * 100, 1)
+pie(smoke_counts, labels = paste(names(smoke_counts), "\n", smoke_percentages, "%"), main = "Distribution of Smoking status", col = rainbow(length(residence_counts)))
+
+```
+
+```{r}
+## Boxplot for age with respect to stroke
+boxplot(age ~ stroke, data = stroke, main = "Age Distribution by Stroke", xlab = "Stroke", ylab = "Age", col = c("lightgreen", "lightcoral"))
+
+## Boxplot for avg_glucose_level with respect to stroke
+boxplot(avg_glucose_level ~ stroke, data = stroke, main = "Avg Glucose Level by Stroke", xlab = "Stroke", ylab = "Avg Glucose Level", col = c("lightgreen", "lightcoral"))
+
+## Boxplot for bmi with respect to stroke
+boxplot(bmi ~ stroke, data = stroke, main = "BMI Distribution by Stroke", xlab = "Stroke", ylab = "BMI", col = c("lightgreen", "lightcoral"))
+
+```
+
+```{r}
+## Function to calculate percentages and create bar plots with different colors
+plot_categorical_variable <- function(variable, title, colors) {
+  percentages <- prop.table(table(stroke[[variable]], stroke$stroke), margin = 2) * 100
+  ggplot(stroke, aes(x = get(variable), fill = as.factor(stroke))) +
+    geom_bar(position = "fill", stat = "count") +
+    scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+    labs(title = title, x = variable, y = "Percentage") +
+    scale_fill_manual(values = colors) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+## Create bar plots for each categorical variable with different colors
+plot_categorical_variable("gender", "Distribution of Gender by Stroke", c("skyblue", "pink"))
+plot_categorical_variable("ever_married", "Distribution of Marital Status by Stroke", c("lightgreen", "lightcoral"))
+plot_categorical_variable("work_type", "Distribution of Work Type by Stroke", c("lightblue", "salmon"))
+plot_categorical_variable("Residence_type", "Distribution of Residence Type by Stroke", c("lightgoldenrod", "lightsalmon"))
+```
+
+```{r}
+## Calculate the correlation matrix
+cor_matrix <- cor(stroke[, c("age", "avg_glucose_level", "bmi")])
+
+## Plot the correlation matrix with an attractive color scale
+corrplot(cor_matrix, method = "color", col = colorRampPalette(c("darkblue", "white", "darkred"))(100), 
+         addCoef.col = "black", tl.cex = 0.8, tl.srt = 45)
+```
+
+```{r}
+## Select numerical variables for correlation analysis
+numerical_variables <- c("age", "avg_glucose_level", "bmi")
+
+## Create an empty data frame to store correlation results
+cor_data_long <- data.frame()
+
+## Loop through numerical variables and calculate correlations
+for (variable in numerical_variables) {
+  correlation_result <- cor.test(stroke[[variable]], stroke$stroke, method = "spearman")
+  
+## Append results to the data frame
+  cor_data_long <- rbind(cor_data_long, data.frame(
+    variable = variable,
+    correlation = correlation_result$estimate,
+    p_value = correlation_result$p.value
+  ))
+}
+
+## Create a bar plot
+ggplot(cor_data_long, aes(x = variable, y = correlation, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Correlation with Stroke", x = "Variable", y = "Correlation") +
+  scale_fill_manual(values = c("lightblue", "lightgreen", "lightcoral")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Data Modelling
+
+```{r}
+## Extract features (X) and target variable (y)
+X <- stroke[, !(names(stroke) %in% c("stroke"))]
+y <- stroke$stroke
+
+## Data preprocessing (handle missing values, encode categorical variables, etc.)
+
+## Split the dataset into training and testing sets
+set.seed(42)  # for reproducibility
+split_index <- createDataPartition(y, p = 0.8, list = FALSE)
+train_data <- stroke[split_index, ]
+test_data <- stroke[-split_index, ]
+
+## Create and train the Naive Bayes model
+model <- naiveBayes(stroke ~ ., data = train_data, laplace = 1)  
+model
+# laplace smoothing, adjust as needed
+
+# ...
+
+## Make predictions on the testing set
+predictions <- predict(model, newdata = test_data)
+
+## Evaluate the model
+conf_matrix <- table(predictions, test_data$stroke)
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+cat("Accuracy:", accuracy, "\n")
+
+## Display confusion matrix for more detailed metrics
+print(conf_matrix)
+
+```
+
+```{r}
+# ... (model training and evaluation code)
+
+# Evaluate the model
+conf_matrix <- table(predictions, test_data$stroke)
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+precision <- conf_matrix[2, 2] / sum(conf_matrix[, 2])
+recall <- conf_matrix[2, 2] / sum(conf_matrix[2, ])
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+cat("Accuracy:", accuracy, "\n")
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+cat("F1 Score:", f1_score, "\n")
+
+```
+
+```{r}
+## Assuming 'predictions' and 'test_data$stroke' are probabilities
+roc_curve <- roc(test_data$stroke, as.numeric(predictions == 1))
+plot(roc_curve, main = "ROC Curve", col = "blue", lwd = 2)
+```
